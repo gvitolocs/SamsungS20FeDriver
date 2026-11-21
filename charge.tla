@@ -10,14 +10,14 @@
 (****************************************************************)
 EXTENDS Integers, TLC, Naturals
 
-\* All "constants" as top-level definitions: the tla2tools SANY on the
+\* All tunables as top-level definitions: the tla2tools SANY on the
 \* build host rejects the CONSTANTS = value grammar (2020 SANY2 build).
 TempHotStop == 500      \* decigradi: stop charging above this
 TempHotResume == 480    \* decigradi: resume below this
 TempColdStop == 20      \* decigradi: cold block below this
 TempMax == 900          \* decigradi: table max
 NULL_TEMP == 99999      \* sensor failure marker (positive sentinel)
-OTGFlavor == "fixed"   \* "flawed" (deployed) or "fixed"
+OTGFlavor == "fixed"   \* "flawed" (deployed) or "fixed" — branch sets this
 
 BattTempMin == -200     \* decigradi, table minimum
 
@@ -53,15 +53,13 @@ TypeOK ==
 
 EnvHeat ==
   /\ battTemp < TempMax
-  /\ sensorFail' = FALSE
   /\ battTemp' = battTemp + 5
-  /\ UNCHANGED <<chgMode, wdgState, otgOn>>
+  /\ UNCHANGED <<chgMode, wdgState, otgOn, sensorFail>>
 
 EnvCool ==
   /\ battTemp > BattTempMin
-  /\ sensorFail' = FALSE
   /\ battTemp' = battTemp - 5
-  /\ UNCHANGED <<chgMode, wdgState, otgOn>>
+  /\ UNCHANGED <<chgMode, wdgState, otgOn, sensorFail>>
 
 EnvSensorFail ==
   /\ sensorFail' = TRUE
@@ -86,25 +84,29 @@ OTGDetach ==
 
 (********************** WATCHDOG (systemd charge-watch) **********************)
 \* The deployed v2 policy: live NTC temp via ADC, stop >= TempHotStop,
-\* resume <= TempHotResume, cold block <= TempColdStop, fail-safe on invalid.
+\* resume <= TempHotResume, cold block <= TempColdStop, FAIL-SAFE on invalid.
+\* The watchdog ticks regardless of sensor state so that a failed sensor
+\* inhibits charging (fail-safe arm below).
 
 WatchdogTick ==
-  /\ sensorFail = FALSE
   /\ CASE
        battTemp = NULL_TEMP ->
          /\ wdgState' = "inhibit"
-         /\ chgMode' = ModeNoCharge       \* fail-safe on invalid reading
-       /\ battTemp >= TempHotStop ->
+         /\ chgMode' = ModeNoCharge
+         /\ UNCHANGED <<battTemp, sensorFail, otgOn>>
+     [] battTemp >= TempHotStop ->
          /\ wdgState' = "inhibit"
          /\ chgMode' = IF otgOn THEN ModeBoostOTG ELSE ModeNoCharge
-       /\ battTemp <= TempColdStop ->
+         /\ UNCHANGED <<battTemp, sensorFail, otgOn>>
+     [] battTemp <= TempColdStop ->
          /\ wdgState' = "inhibit"
          /\ chgMode' = IF otgOn THEN ModeBoostOTG ELSE ModeNoCharge
-       /\ battTemp <= TempHotResume ->
+         /\ UNCHANGED <<battTemp, sensorFail, otgOn>>
+     [] battTemp <= TempHotResume ->
          /\ wdgState' = "auto"
          /\ chgMode' = IF otgOn THEN ModeBoostOTG ELSE ModeCharging
-       [] OTHER -> UNCHANGED <<chgMode, wdgState, otgOn>>
-     /\ UNCHANGED <<battTemp, sensorFail>>
+         /\ UNCHANGED <<battTemp, sensorFail, otgOn>>
+     [] OTHER -> UNCHANGED <<battTemp, chgMode, wdgState, otgOn, sensorFail>>
 
 (********************** NEXT & SPEC **********************)
 
@@ -134,7 +136,9 @@ FailSafeOnInvalid ==
 
 SafetyAll == NoChargeWhenHot /\ NoChargeWhenCold /\ InhibitRespected /\ FailSafeOnInvalid
 
-(********************** LIVENESS **********************)
+(********************** LIVENESS (documented; needs fairness) **********************)
+\* L1 and L2 hold only under weak fairness on WatchdogTick; the CI runs
+\* invariant checking only (no fairness declared).
 
 L1 ==
   (battTemp >= TempHotStop /\ ~sensorFail) ~> (chgMode /= ModeCharging)
@@ -142,5 +146,4 @@ L1 ==
 L2 ==
   ((battTemp <= TempHotResume /\ ~sensorFail /\ wdgState = "auto") ~> chgMode = ModeCharging)
 
-===============
 =============================
