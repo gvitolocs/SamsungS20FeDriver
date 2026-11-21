@@ -1,0 +1,202 @@
+From 75966f2ed9a9e8dc55dd03e716b49f0989811292 Mon Sep 17 00:00:00 2001
+From: giuseppevitolo17 <vitologiuseppe17@gmail.com>
+Date: Fri, 20 Nov 2026 21:16:29 +0000
+Subject: [PATCH 1/2] arm64: dts: exynos990: add the CMGP ADC and name its
+ board channels
+
+The battery pack NTC on r8s is read from channel 4 of the CMGP ADC. Add the
+controller next to the other CMGP block it shares an island with, using the
+vendor register base and the ADC_CMGP2AP interrupt, and record in the board file
+which vendor name each channel carries there, so the mapping is traceable to the
+battery data instead of being re-derived from the charger driver.
+
+No clocks property: the gate the vendor driver names (GATE_ADC_CMGP_S0) is a
+virtual clock whose enable is a no-op behind CMU queue-channel auto-gating, so
+the AP cannot program it and the Exynos990 clock driver does not model it.
+
+Co-Authored-By: qoder (auto-free) <noreply@lane.invalid>
+Lane-Run: qoder-20261120T205449-9c49
+---
+ arch/arm64/boot/dts/exynos/exynos990-r8s.dts | 34 ++++++++++++++++++++
+ arch/arm64/boot/dts/exynos/exynos990.dtsi    | 19 +++++++++++
+ 2 files changed, 53 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/exynos990-r8s.dts b/arch/arm64/boot/dts/exynos/exynos990-r8s.dts
+index fb487910d713..b085b4720fb8 100644
+--- a/arch/arm64/boot/dts/exynos/exynos990-r8s.dts
++++ b/arch/arm64/boot/dts/exynos/exynos990-r8s.dts
+@@ -598,6 +598,40 @@ npu_crit: npu-crit {
+ 	};
+ };
+ 
++/*
++ * CMGP ADC channel wiring on r8s, from the vendor battery data
++ * (arch/arm64/boot/dts/samsung/battery_data_r8_common.dtsi and
++ * battery_data_universal9830_max77705.dtsi:314 in the Samsung tree):
++ *
++ *   io-channels = <&exynos_adc 4>, <&exynos_adc 3>, <&exynos_adc 11>, <&exynos_adc 4>, <&exynos_adc 1>;
++ *   io-channel-names = "adc-temp", "adc-chg-temp", "adc-in-bat", "adc-wpc-temp", "adc-usb-temp";
++ *
++ * so the pack NTC that the charge policy needs is channel 4 ("adc-temp"), the
++ * charger thermistor is 3 and the USB-C thermistor is 1. battery,temp_adc_type =
++ * <1> (SEC_BATTERY_ADC_TYPE_AP) and battery,thermal_source = <2>
++ * (SEC_BATTERY_THERMAL_SOURCE_ADC) in the same file confirm the AP reads this
++ * NTC itself. "adc-in-bat" = 11 is rejected by the 10-channel driver and there
++ * is no "adc-bat" entry on this board at all, so only channels 1, 3 and 4 above
++ * are given vendor names by the driver; the rest keep their bare adcN names.
++ *
++ * The names are carried by the driver as the channel datasheet_name, and exposed
++ * to userspace as in_voltage4_label = "adc-temp". A kernel consumer adds
++ * io-channels + io-channel-names to its own node, e.g.
++ *
++ *   io-channels = <&exynos_adc 4>;
++ *   io-channel-names = "adc-temp";
++ *
++ * "label" below only names the IIO device (sysfs .../iio:deviceN/label) so a
++ * policy daemon can find it without hardcoding the device index. Nothing binds
++ * the channel in mainline today: generic-adc-thermal and iio-hwmon both go
++ * through iio_read_channel_processed(), which needs a voltage scale, and the
++ * reference voltage of this block is not documented anywhere in the vendor
++ * tree, so the conversion is left to userspace with the vendor raw table.
++ */
++&exynos_adc {
++	label = "cmgp-adc";
++};
++
+ /*
+  * PCIe controller 0 - the Wi-Fi endpoint (Qualcomm QCA6390, per the downstream
+  * `qcom,cnss-qca6390` node). Register layout matches the r8s downstream DT and
+diff --git a/arch/arm64/boot/dts/exynos/exynos990.dtsi b/arch/arm64/boot/dts/exynos/exynos990.dtsi
+index 47dbc4b0dc2d..081292d3e67d 100644
+--- a/arch/arm64/boot/dts/exynos/exynos990.dtsi
++++ b/arch/arm64/boot/dts/exynos/exynos990.dtsi
+@@ -494,6 +494,25 @@ pinctrl_cmgp: pinctrl@15c30000 {
+ 			reg = <0x15c30000 0x1000>;
+ 		};
+ 
++		/*
++		 * CMGP ADC (ADC_V3): 10 x 12-bit inputs, shared with the CHUB
++		 * coprocessor that also runs charger control. Mirrors the vendor
++		 * node exynos9830.dts:adc@15C40000 (INTREQ__ADC_CMGP2AP = 83, from
++		 * include/dt-bindings/interrupt-controller/exynos9830.h).
++		 *
++		 * No clocks property: the vendor tree names GATE_ADC_CMGP_S0, which
++		 * is registered as a virtual clock with hardware auto-gating whose
++		 * ->enable() returns immediately (clk-exynos9830.c, composite.c), so
++		 * the AP cannot actually program it and this SoC's clock driver does
++		 * not model it. The driver requests the clock optionally.
++		 */
++		exynos_adc: adc@15c40000 {
++			compatible = "samsung,exynos-adc-v3";
++			reg = <0x15c40000 0x100>;
++			interrupts = <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
++			#io-channel-cells = <1>;
++		};
++
+ 		/* WORKING TREE - 31 Oct. 2024 - ibelwon */
+ 
+ 		cmu_top: clock-controller@1a330000 {
+-- 
+2.53.0
+
+
+From dc4a733d8749029baef2a8ece774fcf15f2ad054 Mon Sep 17 00:00:00 2001
+From: giuseppevitolo17 <vitologiuseppe17@gmail.com>
+Date: Fri, 20 Nov 2026 21:37:34 +0000
+Subject: [PATCH 2/2] r8s: charge_behaviour via CNFG_00 MODE + Exynos ADC v3
+ driver (battery NTC live)
+
+---
+ drivers/power/supply/max77705_charger.c | 41 +++++++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/drivers/power/supply/max77705_charger.c b/drivers/power/supply/max77705_charger.c
+index e7a224b1dd58..33bc98103d32 100644
+--- a/drivers/power/supply/max77705_charger.c
++++ b/drivers/power/supply/max77705_charger.c
+@@ -57,6 +57,7 @@ static enum power_supply_property max77705_charger_props[] = {
+ 	POWER_SUPPLY_PROP_ONLINE,
+ 	POWER_SUPPLY_PROP_PRESENT,
+ 	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR,
+ 	POWER_SUPPLY_PROP_CHARGE_TYPE,
+ 	POWER_SUPPLY_PROP_HEALTH,
+ 	POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
+@@ -173,6 +174,29 @@ static int max77705_set_integer(struct max77705_charger_data *chg, enum max77705
+ 	return regmap_field_write(chg->rfield[fidx], regval);
+ }
+ 
++
++static int max77705_charge_inhibit(struct max77705_charger_data *chg, bool inhibit)
++{
++	/* MAX77705 CNFG_00 MODE[3:0]: 0x5 = buck+charge on, 0x4 = buck on (charge inhibited) */
++	unsigned int mode = inhibit ? 0x4 : 0x5;
++	unsigned int v = 0;
++	int rv;
++
++	rv = regmap_update_bits(chg->regmap, MAX77705_CHG_REG_CNFG_00, 0xF, mode);
++	if (rv) {
++		dev_err(chg->dev, "failed to set CNFG_00 mode=%u: %d\n", mode, rv);
++		return rv;
++	}
++	rv = regmap_read(chg->regmap, MAX77705_CHG_REG_CNFG_00, &v);
++	if (rv)
++		return rv;
++	if ((v & 0xF) != mode) {
++		dev_err(chg->dev, "CNFG_00 readback mismatch: mode=%u\n", v & 0xF);
++		return -EIO;
++	}
++	return 0;
++}
++
+ static int max77705_check_battery(struct max77705_charger_data *chg, int *val)
+ {
+ 	unsigned int reg_data;
+@@ -433,6 +457,15 @@ static int max77705_chg_get_property(struct power_supply *psy,
+ 		return max77705_get_health(chg, &val->intval);
+ 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+ 		return max77705_get_input_current(chg, &val->intval);
++	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR: {
++		unsigned int v = 0;
++		int r = regmap_read(chg->regmap, MAX77705_CHG_REG_CNFG_00, &v);
++		if (r)
++			return r;
++		val->intval = ((v & 0xF) == 0x4) ? POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE
++				 : POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO;
++		return 0;
++	}
+ 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
+ 		return max77705_get_charge_current(chg, &val->intval);
+ 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
+@@ -460,6 +493,12 @@ static int max77705_set_property(struct power_supply *psy,
+ 	int err = 0;
+ 
+ 	switch (psp) {
++	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
++		if (val->intval == POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO)
++			return max77705_charge_inhibit(chg, false);
++		if (val->intval == POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE)
++			return max77705_charge_inhibit(chg, true);
++		return -EINVAL;
+ 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
+ 		err = max77705_set_integer(chg, MAX77705_CHG_CC_LIM,
+ 					   MAX77705_CURRENT_CHGIN_MIN,
+@@ -485,6 +524,7 @@ static int max77705_property_is_writeable(struct power_supply *psy,
+ 					  enum power_supply_property psp)
+ {
+ 	switch (psp) {
++	case POWER_SUPPLY_PROP_CHARGE_BEHAVIOUR:
+ 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
+ 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+ 		return true;
+@@ -495,6 +535,7 @@ static int max77705_property_is_writeable(struct power_supply *psy,
+ 
+ static const struct power_supply_desc max77705_charger_psy_desc = {
+ 	.name = "max77705-charger",
++	.charge_behaviours = BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_AUTO) | BIT(POWER_SUPPLY_CHARGE_BEHAVIOUR_INHIBIT_CHARGE),
+ 	.type = POWER_SUPPLY_TYPE_USB,
+ 	.properties = max77705_charger_props,
+ 	.property_is_writeable = max77705_property_is_writeable,
+-- 
+2.53.0
+

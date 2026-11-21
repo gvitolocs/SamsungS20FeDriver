@@ -1,0 +1,47 @@
+name: TLC model checker
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tlc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Download TLA+ tools
+        run: |
+          curl -sL -o tla2tools.jar \
+            https://github.com/tla-tools/tla2tools/releases/latest/download/tla2tools.jar
+      - name: Run TLC (14 GB heap, exhaustive)
+        run: |
+          mkdir -p tlc-out
+          java -Xmx14G -cp tla2tools.jar tlc2.TLC charge.tla \
+            -config charge.cfg -workers 4 -coverage 1 \
+            2>&1 | tee tlc-out/tlc.log
+          echo "TLC_EXIT=$?" >> $GITHUB_ENV || true
+      - name: Report result
+        id: report
+        run: |
+          if grep -qE "Errors:  *0|Model checking completed" tlc-out/tlc.log; then
+            echo "result=PASS" >> $GITHUB_OUTPUT
+          else
+            echo "result=FAIL" >> $GITHUB_OUTPUT
+            grep -A20 "Invariant" tlc-out/tlc.log | head -40 >> $GITHUB_STEP_SUMMARY || true
+          fi
+          echo "branch=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
+      - name: Upload TLC artifacts (trace + log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tlc-${{ github.ref_name }}
+          path: tlc-out/
+      - name: Verdict
+        run: echo "### TLC ${{ steps.report.outputs.result }} on branch ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
