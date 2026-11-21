@@ -17,7 +17,7 @@ TempHotResume == 480    \* decigradi: resume below this
 TempColdStop == 20      \* decigradi: cold block below this
 TempMax == 900          \* decigradi: table max
 NULL_TEMP == 99999      \* sensor failure marker (positive sentinel)
-OTGFlavor == "flawed"   \* "flawed" (deployed) or "fixed" — branch sets this
+OTGFlavor == "fixed"   \* "flawed" (deployed) or "fixed" — branch sets this
 
 BattTempMin == -200     \* decigradi, table minimum
 
@@ -52,19 +52,16 @@ TypeOK ==
 (********************** ENVIRONMENT **********************)
 
 EnvHeat ==
-  /\ ~sensorFail
   /\ battTemp < TempMax
   /\ battTemp' = battTemp + 5
   /\ UNCHANGED <<chgMode, wdgState, otgOn, sensorFail>>
 
 EnvCool ==
-  /\ ~sensorFail
   /\ battTemp > BattTempMin
   /\ battTemp' = battTemp - 5
   /\ UNCHANGED <<chgMode, wdgState, otgOn, sensorFail>>
 
 EnvSensorFail ==
-  /\ ~sensorFail
   /\ sensorFail' = TRUE
   /\ battTemp' = NULL_TEMP
   /\ UNCHANGED <<chgMode, wdgState, otgOn>>
