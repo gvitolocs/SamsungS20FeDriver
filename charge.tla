@@ -17,7 +17,7 @@ TempHotResume == 480    \* decigradi: resume below this
 TempColdStop == 20      \* decigradi: cold block below this
 TempMax == 900          \* decigradi: table max
 NULL_TEMP == 99999      \* sensor failure marker (positive sentinel)
-OTGFlavor == "fixed"     \* OTG detach respects watchdog inhibit
+OTGFlavor == "fixed"   \* "flawed" (deployed) or "fixed"
 
 BattTempMin == -200     \* decigradi, table minimum
 
