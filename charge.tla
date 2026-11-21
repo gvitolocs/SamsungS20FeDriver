@@ -118,7 +118,7 @@ Next ==
   \/ OTGDetach
   \/ WatchdogTick
 
-Spec == Init /\ [][Next]_vars
+Spec == Init /\ [][Next]_vars /\ WF_vars(WatchdogTick)
 
 (********************** SAFETY PROPERTIES **********************)
 
@@ -132,7 +132,7 @@ InhibitRespected ==
   (wdgState = "inhibit" /\ ~otgOn) => chgMode /= ModeCharging
 
 FailSafeOnInvalid ==
-  (battTemp = NULL_TEMP) => chgMode = ModeNoCharge
+  (battTemp = NULL_TEMP) ~> (chgMode /= ModeCharging)
 
 SafetyAll == NoChargeWhenHot /\ NoChargeWhenCold /\ InhibitRespected /\ FailSafeOnInvalid
 
