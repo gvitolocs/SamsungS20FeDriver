@@ -17,23 +17,23 @@ TempHotResume == 480    \* decigradi: resume below this
 TempColdStop == 20      \* decigradi: cold block below this
 TempMax == 900          \* decigradi: table max
 NULL_TEMP == 99999      \* sensor failure marker (positive sentinel)
-OTGFlavor == "fixed"   \* "flawed" (deployed) or "fixed" — branch sets this
+OTGFlavor == "flawed"   \* "flawed" (deployed) or "fixed" — branch sets this
 
 BattTempMin == -200     \* decigradi, table minimum
 
 VARIABLES
   battTemp,      \* battery temperature (decigradi) or NULL_TEMP
-  chgMode,       \* CNFG_00 MODE: 4 buck-on-no-charge, 5 buck+charge,
-                 \* 10 boost-OTG, 15 UNO
+  chgMode,       \* CNFG_00 MODE: 0x4 buck-on-no-charge, 0x5 buck+charge,
+                 \* 0xA boost-OTG, 0xF UNO
   wdgState,      \* watchdog intent: "auto" / "inhibit"
   otgOn,         \* OTG VBUS active (a USB accessory drawing power)
   sensorFail     \* temperature reading invalid/stale
 
 vars == <<battTemp, chgMode, wdgState, otgOn, sensorFail>>
 
-ModeNoCharge == 4
-ModeCharging == 5
-ModeBoostOTG == 10
+ModeNoCharge == 0x4
+ModeCharging == 0x5
+ModeBoostOTG == 0xA
 
 Init ==
   /\ battTemp = 320        \* ~32C, the measured value
@@ -44,7 +44,7 @@ Init ==
 
 TypeOK ==
   /\ battTemp \in {NULL_TEMP} \union BattTempMin..TempMax
-  /\ chgMode \in {ModeNoCharge, ModeCharging, ModeBoostOTG, 15}
+  /\ chgMode \in {ModeNoCharge, ModeCharging, ModeBoostOTG, 0xF}
   /\ wdgState \in {"auto", "inhibit"}
   /\ otgOn \in BOOLEAN
   /\ sensorFail \in BOOLEAN
