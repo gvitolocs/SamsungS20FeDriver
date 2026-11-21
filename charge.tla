@@ -52,16 +52,19 @@ TypeOK ==
 (********************** ENVIRONMENT **********************)
 
 EnvHeat ==
+  /\ ~sensorFail
   /\ battTemp < TempMax
   /\ battTemp' = battTemp + 5
   /\ UNCHANGED <<chgMode, wdgState, otgOn, sensorFail>>
 
 EnvCool ==
+  /\ ~sensorFail
   /\ battTemp > BattTempMin
   /\ battTemp' = battTemp - 5
   /\ UNCHANGED <<chgMode, wdgState, otgOn, sensorFail>>
 
 EnvSensorFail ==
+  /\ ~sensorFail
   /\ sensorFail' = TRUE
   /\ battTemp' = NULL_TEMP
   /\ UNCHANGED <<chgMode, wdgState, otgOn>>
