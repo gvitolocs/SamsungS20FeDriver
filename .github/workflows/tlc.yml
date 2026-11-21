@@ -16,10 +16,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Download TLA+ tools
-        run: |
-          curl -sL -o tla2tools.jar \
-            https://github.com/tla-tools/tla2tools/releases/download/1.8.0/tla2tools.jar
+      - name: Use committed TLA+ tools (verified jar)
+        run: ls -la tla2tools.jar
       - name: Run TLC (14 GB heap, exhaustive)
         run: |
           mkdir -p tlc-out
